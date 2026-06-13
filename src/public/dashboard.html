@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Processing Dashboard</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7fa; color: #333; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: auto; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { margin: 0; color: #2c3e50; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        select, textarea, input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; box-sizing: border-box; }
+        button { background: #3498db; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; margin-right: 5px; }
+        button:hover { background: #2980b9; }
+        .btn-secondary { background: #95a5a6; }
+        .btn-secondary:hover { background: #7f8c8d; }
+        pre { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 4px; overflow-x: auto; max-height: 400px; }
+        .nav-links a { color: #3498db; text-decoration: none; font-weight: bold; margin-left: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ Job Dashboard</h1>
+            <div class="nav-links">
+                <a href="/admin/queues" target="_blank">Bull Board</a>
+                <a href="/api-docs" target="_blank">Swagger API Docs</a>
+            </div>
+        </header>
+
+        <div class="card">
+            <h2>Create New Job</h2>
+            <div class="form-group">
+                <label for="jobType">Job Type</label>
+                <select id="jobType">
+                    <option value="email">Email</option>
+                    <option value="payment">Payment</option>
+                    <option value="notification">Notification</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="jobPayload">Payload (JSON)</label>
+                <textarea id="jobPayload" rows="4">{"to": "user@example.com", "subject": "Hello!"}</textarea>
+            </div>
+            <button onclick="createJob()">Enqueue Job</button>
+        </div>
+
+        <div class="card">
+            <h2>Monitoring Actions</h2>
+            <button class="btn-secondary" onclick="fetchData('/api/jobs/all/logs')">Load All Logs</button>
+            <button class="btn-secondary" onclick="fetchData('/api/jobs/dlq/list')">Load Dead Letter Queue (DLQ)</button>
+            
+            <div style="margin-top: 15px; display: flex; gap: 10px;">
+                <input type="text" id="jobIdInput" placeholder="Enter Job ID" style="width: auto; flex: 1;">
+                <button class="btn-secondary" onclick="fetchJobById()">Check Job Status</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Result Output</h2>
+            <pre id="output">Results will appear here...</pre>
+        </div>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+
+        function setOutput(data) {
+            output.textContent = JSON.stringify(data, null, 2);
+        }
+
+        async function createJob() {
+            const type = document.getElementById('jobType').value;
+            let payload;
+            try {
+                payload = JSON.parse(document.getElementById('jobPayload').value);
+            } catch (e) {
+                alert('Invalid JSON in payload');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, payload })
+                });
+                const data = await response.json();
+                setOutput(data);
+            } catch (err) {
+                setOutput({ error: err.message });
+            }
+        }
+
+        async function fetchData(url) {
+            output.textContent = "Loading...";
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                setOutput(data);
+            } catch (err) {
+                setOutput({ error: err.message });
+            }
+        }
+
+        async function fetchJobById() {
+            const id = document.getElementById('jobIdInput').value;
+            if (!id) return alert('Enter a Job ID');
+            fetchData(`/api/jobs/${id}`);
+        }
+    </script>
+</body>
+</html>

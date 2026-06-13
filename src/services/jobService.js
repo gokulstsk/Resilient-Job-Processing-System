@@ -60,6 +60,14 @@ const JobService = {
     }
   },
 
+  // Fetch all job logs for the dashboard
+  async getAllJobLogs() {
+    const [rows] = await db.execute(
+      `SELECT * FROM job_logs ORDER BY created_at DESC LIMIT 500`
+    );
+    return rows;
+  },
+
   // Fetch job history for the status API
   async getJobLog(jobId) {
     const [rows] = await db.execute(

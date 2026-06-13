@@ -3,11 +3,13 @@
 require("dotenv").config();
 
 const express = require("express");
+const path = require("path");
 const app = express();
 
 // ── Middleware ──────────────────────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, "public")));
 
 // Request logger
 app.use((req, res, next) => {
@@ -18,6 +20,27 @@ app.use((req, res, next) => {
 // ── Routes ─────────────────────────────────────────────────────────────────
 const jobRoutes = require("./routes/jobs");
 app.use("/api/jobs", jobRoutes);
+
+// Swagger API Docs
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./config/swagger");
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Dashboard (Bull Board)
+const { createBullBoard } = require("@bull-board/api");
+const { BullMQAdapter } = require("@bull-board/api/bullMQAdapter");
+const { ExpressAdapter } = require("@bull-board/express");
+const { emailQueue, paymentQueue, notificationQueue } = require("./queues/jobQueue");
+
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath("/admin/queues");
+
+createBullBoard({
+  queues: [new BullMQAdapter(emailQueue), new BullMQAdapter(paymentQueue), new BullMQAdapter(notificationQueue)],
+  serverAdapter: serverAdapter,
+});
+
+app.use("/admin/queues", serverAdapter.getRouter());
 
 // Health check
 app.get("/health", (req, res) => {
@@ -45,6 +68,8 @@ require("./workers/notificationWorker");
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n🚀 Smart Queue API running on http://localhost:${PORT}`);
+  console.log(`📊 Dashboard running on http://localhost:${PORT}/admin/queues`);
+  console.log(`📖 Swagger API Docs running on http://localhost:${PORT}/api-docs`);
   console.log(`   Workers: emailWorker, paymentWorker, notificationWorker\n`);
 });
 
