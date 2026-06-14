@@ -1,88 +1,99 @@
 // src/services/jobService.js
-// Persists job lifecycle events (created, completed, failed, dead) to MySQL
-const db = require("../config/db");
+// Persists job lifecycle events (created, completed, failed, dead) using Sequelize
+const { sequelize, JobLog, DeadLetterQueue } = require("../config/db");
 
 const JobService = {
   // Called when a job is first enqueued via the API
   async createLog(jobId, jobType, payload, maxAttempts = 3) {
-    await db.execute(
-      `INSERT INTO job_logs (job_id, job_type, payload, status, max_attempts)
-       VALUES (?, ?, ?, 'waiting', ?)`,
-      [jobId, jobType, JSON.stringify(payload), maxAttempts]
-    );
+    await JobLog.create({
+      job_id: jobId,
+      job_type: jobType,
+      payload: payload,
+      status: "waiting",
+      max_attempts: maxAttempts,
+    });
   },
 
   // Called by a worker when it picks up a job
   async markActive(jobId, attempts) {
-    await db.execute(
-      `UPDATE job_logs SET status = 'active', attempts = ? WHERE job_id = ?`,
-      [attempts, jobId]
+    await JobLog.update(
+      { status: "active", attempts: attempts },
+      { where: { job_id: jobId } }
     );
   },
 
   // Called on successful job completion
   async markCompleted(jobId, result) {
-    await db.execute(
-      `UPDATE job_logs SET status = 'completed', result = ? WHERE job_id = ?`,
-      [JSON.stringify(result), jobId]
+    await JobLog.update(
+      { status: "completed", result: result },
+      { where: { job_id: jobId } }
     );
   },
 
   // Called on each failed attempt (will retry if attempts < max)
   async markFailed(jobId, attempts, errorMessage) {
-    await db.execute(
-      `UPDATE job_logs SET status = 'failed', attempts = ?, error_message = ? WHERE job_id = ?`,
-      [attempts, errorMessage, jobId]
+    await JobLog.update(
+      { status: "failed", attempts: attempts, error_message: errorMessage },
+      { where: { job_id: jobId } }
     );
   },
 
   // Called when max retries are exhausted — move to DLQ
   async moveToDLQ(jobId, jobType, payload, totalAttempts, finalError) {
-    const conn = await db.getConnection();
+    const transaction = await sequelize.transaction();
     try {
-      await conn.beginTransaction();
-      await conn.execute(
-        `UPDATE job_logs SET status = 'dead' WHERE job_id = ?`,
-        [jobId]
+      await JobLog.update(
+        { status: "dead" },
+        { where: { job_id: jobId }, transaction }
       );
-      await conn.execute(
-        `INSERT INTO dead_letter_queue (job_id, job_type, payload, total_attempts, final_error)
-         VALUES (?, ?, ?, ?, ?)`,
-        [jobId, jobType, JSON.stringify(payload), totalAttempts, finalError]
+
+      await DeadLetterQueue.create(
+        {
+          job_id: jobId,
+          job_type: jobType,
+          payload: payload,
+          total_attempts: totalAttempts,
+          final_error: finalError,
+        },
+        { transaction }
       );
-      await conn.commit();
+
+      await transaction.commit();
       console.log(`[DLQ] Job ${jobId} moved to dead letter queue after ${totalAttempts} attempts`);
     } catch (err) {
-      await conn.rollback();
+      await transaction.rollback();
       throw err;
-    } finally {
-      conn.release();
     }
   },
 
   // Fetch all job logs for the dashboard
   async getAllJobLogs() {
-    const [rows] = await db.execute(
-      `SELECT * FROM job_logs ORDER BY created_at DESC LIMIT 500`
-    );
-    return rows;
+    const logs = await JobLog.findAll({
+      order: [["created_at", "DESC"]],
+      limit: 500,
+      raw: true,
+    });
+    return logs;
   },
 
   // Fetch job history for the status API
   async getJobLog(jobId) {
-    const [rows] = await db.execute(
-      `SELECT * FROM job_logs WHERE job_id = ?`,
-      [jobId]
-    );
-    return rows[0] || null;
+    const log = await JobLog.findOne({
+      where: { job_id: jobId },
+      raw: true,
+    });
+    return log || null;
   },
 
   // Fetch all DLQ entries pending review
   async getDLQJobs() {
-    const [rows] = await db.execute(
-      `SELECT * FROM dead_letter_queue WHERE reviewed = FALSE ORDER BY dead_at DESC LIMIT 100`
-    );
-    return rows;
+    const dlqJobs = await DeadLetterQueue.findAll({
+      where: { reviewed: false },
+      order: [["dead_at", "DESC"]],
+      limit: 100,
+      raw: true,
+    });
+    return dlqJobs;
   },
 };
 

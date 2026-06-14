@@ -1,0 +1,67 @@
+# Resilient Job Processing System - Documentation
+
+This document provides a comprehensive overview of every file in the project and its respective purpose.
+
+## 1. `src/app.js`
+- **Purpose**: The main entry point of the application.
+- **Description**: Starts the Express API server, configures middlewares (JSON parsing, URL-encoded data, static files), and sets up routing. It initializes the Swagger API documentation and integrates the BullMQ Dashboard via `@bull-board`. It also initializes and starts the BullMQ workers (`emailWorker`, `paymentWorker`, `notificationWorker`).
+
+## 2. `src/config/db.js`
+- **Purpose**: Database connection configuration.
+- **Description**: Configures the connection pool for MySQL (using `mysql2/promise`) and PostgreSQL (using `pg` and `postgres`). Reads environment variables for host, port, user, password, and database name. Tests the MySQL connection on startup if the `DB` environment variable is set to `mysql`.
+
+## 3. `src/config/redis.js`
+- **Purpose**: Redis connection configuration.
+- **Description**: Uses `ioredis` to establish a connection to the Redis server which is required by BullMQ. It retrieves connection details like host, port, username, and password from environment variables.
+
+## 4. `src/config/swagger.js`
+- **Purpose**: API Documentation configuration.
+- **Description**: Configures `swagger-jsdoc` with OpenAPI 3.0.0 definitions. It defines the schemas (like `JobRequest`) and documents the available API endpoints (`/api/jobs`, `/api/jobs/all/logs`, `/api/jobs/{jobId}`, `/api/jobs/dlq/list`).
+
+## 5. `src/constants/index.js`
+- **Purpose**: Application constants.
+- **Description**: Exports maximum retry attempts for different job types (`EMAIL_MAX_ATTEMPTS`, `PAYMENT_MAX_ATTEMPTS`, `NOTIFICATION_MAX_ATTEMPTS`) retrieved from environment variables.
+
+## 6. `src/controller/jobs.js`
+- **Purpose**: Request handlers for job-related API routes.
+- **Description**: Contains logic for handling HTTP requests:
+  - `createJob`: Enqueues a new job into the respective BullMQ queue based on the requested type (`email`, `payment`, `notification`) and saves the initial job state to the database using `JobService`.
+  - `getAllJobs`: Fetches all job logs from the database.
+  - `updatejobById`: Fetches the status of a specific job by its ID.
+  - `deadLetterQueueList`: Fetches a list of jobs in the Dead Letter Queue (DLQ).
+
+## 7. `src/public/dashboard.html`
+- **Purpose**: Simple frontend dashboard UI.
+- **Description**: An HTML file providing a user interface to manually enqueue new jobs (Email, Payment, Notification) and monitor job logs and the dead letter queue by making requests to the provided API endpoints.
+
+## 8. `src/queues/jobQueue.js`
+- **Purpose**: Queue definitions and configuration.
+- **Description**: Initializes BullMQ queues for `email`, `payment`, and `notification` job types. It sets up default job options including retry limits (attempts) and exponential backoff strategies. It exposes a helper function `getQueue(jobType)` to dynamically retrieve the correct queue.
+
+## 9. `src/routes/jobs.js`
+- **Purpose**: API route definitions.
+- **Description**: Maps Express HTTP endpoints (POST `/`, GET `/all/logs`, GET `/:jobId`, GET `/dlq/list`) to the corresponding controller functions found in `src/controller/jobs.js`.
+
+## 10. `src/services/jobService.js`
+- **Purpose**: Database service layer.
+- **Description**: Encapsulates database interactions using Sequelize ORM models (`JobLog` and `DeadLetterQueue`) for tracking the job lifecycle. It tracks when a job is enqueued (`createLog`), actively processing (`markActive`), completed (`markCompleted`), or failed (`markFailed`). It also handles moving permanently failed jobs to the Dead Letter Queue (`moveToDLQ`) using Sequelize transactions and fetching logs for API consumption.
+
+## 11. `src/workers/emailWorker.js`
+- **Purpose**: Background worker for email jobs.
+- **Description**: A BullMQ worker that processes jobs from the `email` queue. It simulates sending an email (with a random failure rate to demonstrate retries). It updates the database log via `JobService` based on job completion or failure, and moves the job to the DLQ when max attempts are reached.
+
+## 12. `src/workers/notificationWorker.js`
+- **Purpose**: Background worker for notification jobs.
+- **Description**: A BullMQ worker that processes jobs from the `notification` queue. Supports channels like push, sms, and in-app, simulating processing and handling occasional failures by updating database logs and the DLQ as necessary.
+
+## 13. `src/workers/paymentWorker.js`
+- **Purpose**: Background worker for payment jobs.
+- **Description**: A BullMQ worker that processes jobs from the `payment` queue. Simulates payment gateway interaction. This worker is configured with a higher priority and fewer concurrent processing constraints for safety compared to others. Updates DB logs and DLQ accordingly.
+
+## 14. `schema.sql`
+- **Purpose**: Database schema definition.
+- **Description**: Contains the SQL commands to create the `smart_queue_db` database and the required tables: `job_logs` for tracking job lifecycle events, and `dead_letter_queue` for holding permanently failed jobs.
+
+## 15. `package.json`
+- **Purpose**: Node.js project metadata and dependencies.
+- **Description**: Defines the project name, version, and scripts (start, dev, and individual worker scripts). Lists all dependencies required by the application, including `express`, `bullmq`, `mysql2`, `ioredis`, and `@bull-board`.
